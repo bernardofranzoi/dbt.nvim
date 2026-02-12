@@ -1,0 +1,17 @@
+{
+  "dbt ref": {
+    "prefix": "ref",
+    "body": "{{ ref('$1') }}$0",
+    "description": "dbt ref('model_name')"
+  },
+  "dbt source": {
+    "prefix": "source",
+    "body": "{{ source('$1', '$2') }}$0",
+    "description": "dbt source('source_name', 'table_name')"
+  },
+  "dbt config": {
+    "prefix": "config",
+    "body": "{{\n  config(\n    materialized = '$1',\n  )\n}}$0",
+    "description": "dbt config block"
+  }
+}
