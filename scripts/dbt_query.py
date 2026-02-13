@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Run a SQL query against BigQuery or Databricks using credentials from ~/.dbt/profiles.yml."""
+import csv
 import os
 import sys
 
@@ -50,6 +51,16 @@ def format_table(headers, rows):
     return "\n".join(lines)
 
 
+def write_csv(headers, rows, csv_path):
+    """Write query results to a CSV file."""
+    with open(csv_path, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(headers)
+        for row in rows:
+            writer.writerow(["" if val is None else val for val in row])
+    print(f"\nCSV saved to: {csv_path}")
+
+
 def run_bigquery(target, sql, limit):
     from google.cloud import bigquery
 
@@ -85,6 +96,8 @@ def run_bigquery(target, sql, limit):
     print(f"Bytes processed: {bytes_processed:,}")
     print(f"Bytes billed:    {bytes_billed:,}")
 
+    return headers, rows
+
 
 def run_databricks(target, sql, limit):
     from databricks import sql as dbsql
@@ -111,22 +124,25 @@ def run_databricks(target, sql, limit):
         cursor = connection.cursor()
         cursor.execute(sql)
         headers = [desc[0] for desc in cursor.description]
-        rows = cursor.fetchall()
-        print(format_table(headers, [list(row) for row in rows]))
+        rows = [list(row) for row in cursor.fetchall()]
+        print(format_table(headers, rows))
         print(f"\n{len(rows)} row(s) returned")
     finally:
         cursor.close()
         connection.close()
 
+    return headers, rows
+
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: dbt_query.py <sql_file> [--profile PROFILE] [--limit N]")
+        print("Usage: dbt_query.py <sql_file> [--profile PROFILE] [--limit N] [--csv FILE]")
         sys.exit(1)
 
     sql_file = sys.argv[1]
     profile_name = "default"
     limit = None
+    csv_path = None
 
     i = 2
     while i < len(sys.argv):
@@ -135,6 +151,9 @@ def main():
             i += 2
         elif sys.argv[i] == "--limit" and i + 1 < len(sys.argv):
             limit = int(sys.argv[i + 1])
+            i += 2
+        elif sys.argv[i] == "--csv" and i + 1 < len(sys.argv):
+            csv_path = sys.argv[i + 1]
             i += 2
         else:
             i += 1
@@ -156,12 +175,16 @@ def main():
 
     try:
         if adapter_type == "bigquery":
-            run_bigquery(target, sql, limit)
+            headers, rows = run_bigquery(target, sql, limit)
         elif adapter_type == "databricks":
-            run_databricks(target, sql, limit)
+            headers, rows = run_databricks(target, sql, limit)
         else:
             print(f"Error: unsupported adapter type '{adapter_type}'")
             sys.exit(1)
+
+        if csv_path:
+            write_csv(headers, rows, csv_path)
+
     except Exception as e:
         print(f"\nQuery error:\n{e}")
         sys.exit(1)

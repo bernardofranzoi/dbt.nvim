@@ -7,6 +7,20 @@ local M = {}
 local plugin_root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h:h")
 local query_script = plugin_root .. "/scripts/dbt_query.py"
 
+--- Build the base query command string.
+local function build_query_cmd(root, tmpfile, extra_args)
+  local python = project.get_python(root)
+  local profile = project.get_profile(root)
+  return string.format(
+    "%s %s %s --profile %s%s",
+    python,
+    vim.fn.shellescape(query_script),
+    vim.fn.shellescape(tmpfile),
+    vim.fn.shellescape(profile),
+    extra_args or ""
+  ), profile
+end
+
 --- Run raw SQL against the warehouse (BigQuery or Databricks) via dbt_query.py.
 function M.run_sql(sql_lines, opts)
   local root = project.find_root()
@@ -14,22 +28,25 @@ function M.run_sql(sql_lines, opts)
     vim.notify("No dbt_project.yml found in parent directories", vim.log.levels.ERROR)
     return
   end
-  local python = project.get_python(root)
   if vim.fn.filereadable(query_script) ~= 1 then
     vim.notify("dbt_query.py not found at " .. query_script, vim.log.levels.ERROR)
     return
   end
-  local profile = project.get_profile(root)
   local tmpfile = vim.fn.tempname() .. ".sql"
   vim.fn.writefile(sql_lines, tmpfile)
-  local cmd = string.format(
-    "%s %s %s --profile %s",
-    python,
-    vim.fn.shellescape(query_script),
-    vim.fn.shellescape(tmpfile),
-    vim.fn.shellescape(profile)
-  )
+  local csv_flag = ""
+  if opts and opts.csv then
+    csv_flag = " --csv " .. vim.fn.shellescape(opts.csv)
+  end
+  local cmd, profile = build_query_cmd(root, tmpfile, csv_flag)
   terminal.float(cmd, " Query Results (" .. profile .. ") ")
+end
+
+--- Run raw SQL and save results to CSV.
+function M.run_sql_csv(sql_lines)
+  local csv_path = vim.fn.input("Save CSV to: ", vim.fn.getcwd() .. "/query_results.csv")
+  if csv_path == "" then return end
+  M.run_sql(sql_lines, { csv = csv_path })
 end
 
 --- Compile the current model, then run the compiled SQL against the warehouse.
@@ -50,8 +67,12 @@ function M.compile_and_run(opts)
   local env = project.env_prefix(root)
   local m = project.model_name()
   local tmpfile = vim.fn.tempname() .. ".sql"
+  local csv_flag = ""
+  if opts and opts.csv then
+    csv_flag = " --csv " .. vim.fn.shellescape(opts.csv)
+  end
   local cmd = string.format(
-    [[cd %s && %s%s compile -s %s %s && cp "$(find target/compiled -name '%s.sql' -print -quit)" %s && %s %s %s --profile %s]],
+    [[cd %s && %s%s compile -s %s %s && cp "$(find target/compiled -name '%s.sql' -print -quit)" %s && %s %s %s --profile %s%s]],
     vim.fn.shellescape(root),
     env,
     dbt,
@@ -62,7 +83,8 @@ function M.compile_and_run(opts)
     python,
     vim.fn.shellescape(query_script),
     vim.fn.shellescape(tmpfile),
-    vim.fn.shellescape(profile)
+    vim.fn.shellescape(profile),
+    csv_flag
   )
   terminal.float(cmd, " dbt compile + query: " .. m .. " ")
 end

@@ -73,6 +73,40 @@ function M.setup(opts)
     end, { desc = "Run selection SQL on warehouse" })
   end
 
+  if keys.query_csv then
+    -- Normal mode: run entire buffer and save to CSV
+    vim.keymap.set("n", keys.query_csv, function()
+      local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+      local content = table.concat(lines, "\n")
+      local csv_path = vim.fn.input("Save CSV to: ", vim.fn.getcwd() .. "/query_results.csv")
+      if csv_path == "" then return end
+      if project.has_jinja(content) and project.is_dbt_model() and not project.is_compiled_artifact() then
+        query.compile_and_run({ csv = csv_path })
+      else
+        query.run_sql(lines, { csv = csv_path })
+      end
+    end, { desc = "Run buffer SQL and save to CSV" })
+
+    -- Visual mode: run selection and save to CSV
+    vim.keymap.set("x", keys.query_csv, function()
+      local start_line = vim.fn.line("v")
+      local end_line = vim.fn.line(".")
+      if start_line > end_line then
+        start_line, end_line = end_line, start_line
+      end
+      local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+      local csv_path = vim.fn.input("Save CSV to: ", vim.fn.getcwd() .. "/query_results.csv")
+      if csv_path == "" then return end
+      local content = table.concat(lines, "\n")
+      if project.has_jinja(content) and project.is_dbt_model() and not project.is_compiled_artifact() then
+        query.compile_and_run({ csv = csv_path })
+      else
+        query.run_sql(lines, { csv = csv_path })
+      end
+    end, { desc = "Run selection SQL and save to CSV" })
+  end
+
   if keys.render then
     vim.keymap.set("n", keys.render, function()
       render.open_rendered()

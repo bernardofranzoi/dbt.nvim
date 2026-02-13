@@ -8,6 +8,7 @@ M.defaults = {
     test = "<leader>dt",
     build = "<leader>db",
     query = "<leader>dq",
+    query_csv = "<leader>dQ",
     render = "<leader>do",
     defer = "<leader>dd",
   },
