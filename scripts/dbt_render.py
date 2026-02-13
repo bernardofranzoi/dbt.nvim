@@ -6,6 +6,7 @@ import os
 import sys
 from glob import glob
 
+import yaml
 from jinja2 import Environment, BaseLoader, Undefined
 
 
@@ -22,6 +23,18 @@ class SilentUndefined(Undefined):
 
     def __call__(self, *args, **kwargs):
         return self
+
+
+def load_project_vars(project_root):
+    """Load vars from dbt_project.yml."""
+    if not project_root:
+        return {}
+    yml_path = os.path.join(project_root, "dbt_project.yml")
+    if not os.path.isfile(yml_path):
+        return {}
+    with open(yml_path) as f:
+        project = yaml.safe_load(f)
+    return project.get("vars", {}) or {}
 
 
 def load_manifest(state_dir):
@@ -82,7 +95,7 @@ def detect_incremental(model_sql):
     return bool(re.search(r"""materialized\s*=\s*['"]incremental['"]""", model_sql))
 
 
-def render_model(model_sql, ref_map, source_map, macro_sources, project_root):
+def render_model(model_sql, ref_map, source_map, macro_sources, project_root, project_vars=None):
     env = Environment(
         loader=BaseLoader(),
         undefined=SilentUndefined,
@@ -90,6 +103,7 @@ def render_model(model_sql, ref_map, source_map, macro_sources, project_root):
     )
 
     is_incremental = detect_incremental(model_sql)
+    _vars = project_vars or {}
 
     # -- dbt built-in functions --
     def dbt_ref(model_name):
@@ -103,7 +117,11 @@ def render_model(model_sql, ref_map, source_map, macro_sources, project_root):
         return ""
 
     def dbt_var(name, default=None):
-        return default if default is not None else ""
+        if name in _vars:
+            return _vars[name]
+        if default is not None:
+            return default
+        return "Not defined."
 
     def dbt_env_var(name, default=None):
         return os.environ.get(name, default if default is not None else "")
@@ -129,7 +147,7 @@ def render_model(model_sql, ref_map, source_map, macro_sources, project_root):
         rendered = template.render()
     except Exception as e:
         # If Jinja rendering fails, fall back to simple regex
-        rendered = regex_fallback(model_sql, ref_map, source_map, is_incremental)
+        rendered = regex_fallback(model_sql, ref_map, source_map, is_incremental, _vars)
         rendered += f"\n-- Jinja render warning: {e}\n"
 
     # Clean up blank lines
@@ -138,7 +156,7 @@ def render_model(model_sql, ref_map, source_map, macro_sources, project_root):
     return rendered
 
 
-def regex_fallback(sql, ref_map, source_map, is_incremental=False):
+def regex_fallback(sql, ref_map, source_map, is_incremental=False, project_vars=None):
     """Simple regex fallback if Jinja2 rendering fails."""
     import re
 
@@ -185,6 +203,22 @@ def regex_fallback(sql, ref_map, source_map, is_incremental=False):
         r"\{\{\s*source\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)\s*\}\}",
         replace_source, sql,
     )
+
+    _vars = project_vars or {}
+
+    def replace_var(match):
+        name = match.group(1)
+        default = match.group(3)  # group 3 is the default value if present
+        if name in _vars:
+            return str(_vars[name])
+        if default is not None:
+            return default
+        return "Not defined."
+
+    sql = re.sub(
+        r"\{\{\s*var\s*\(\s*['\"]([^'\"]+)['\"]\s*(,\s*['\"]?([^'\")\s]+)['\"]?\s*)?\)\s*\}\}",
+        replace_var, sql,
+    )
     return sql
 
 
@@ -225,8 +259,9 @@ def main():
     ref_map = build_ref_map(manifest)
     source_map = build_source_map(manifest)
     macro_sources = collect_macro_sources(project_root) if project_root else ""
+    project_vars = load_project_vars(project_root)
 
-    rendered = render_model(model_sql, ref_map, source_map, macro_sources, project_root)
+    rendered = render_model(model_sql, ref_map, source_map, macro_sources, project_root, project_vars)
 
     if output_file:
         with open(output_file, "w") as f:
