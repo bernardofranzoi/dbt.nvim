@@ -7,16 +7,21 @@ local M = {}
 local plugin_root = vim.fn.fnamemodify(debug.getinfo(1, "S").source:sub(2), ":h:h:h")
 local query_script = plugin_root .. "/scripts/dbt_query.py"
 
+-- Default query row limit
+M._query_limit = 1000
+
 --- Build the base query command string.
 local function build_query_cmd(root, tmpfile, extra_args)
   local python = project.get_python(root)
   local profile = project.get_profile(root)
+  local limit_flag = M._query_limit and (" --limit " .. M._query_limit) or ""
   return string.format(
-    "%s %s %s --profile %s%s",
+    "%s %s %s --profile %s%s%s",
     python,
     vim.fn.shellescape(query_script),
     vim.fn.shellescape(tmpfile),
     vim.fn.shellescape(profile),
+    limit_flag,
     extra_args or ""
   ), profile
 end

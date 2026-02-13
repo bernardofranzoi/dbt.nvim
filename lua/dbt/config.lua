@@ -14,6 +14,7 @@ M.defaults = {
   },
   which_key_group = "<leader>d",
   show_limit = 100,
+  query_limit = 1000, -- default row limit for queries (nil to disable)
   defer_to_prod = true,
   float_win = { height = 0.8, width = 0.9, border = "rounded" },
   python_bin = nil, -- auto-detect from .venv or global

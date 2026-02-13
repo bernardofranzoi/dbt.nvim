@@ -7,6 +7,7 @@ function M.setup(opts)
   project._dbt_bin = opts.dbt_bin
   project._python_bin = opts.python_bin
   require("dbt.terminal")._opts = opts
+  require("dbt.query")._query_limit = opts.query_limit
   require("dbt.keymaps").setup(opts)
   require("dbt.navigation").attach()
 end
