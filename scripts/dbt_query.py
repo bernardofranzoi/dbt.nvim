@@ -23,6 +23,23 @@ def load_profile(profile_name="default"):
     return target
 
 
+def format_vertical(headers, rows):
+    """Format results in vertical/record mode — one column per line, one block per row."""
+    if not rows:
+        return "Query returned 0 rows."
+
+    max_header_len = max(len(h) for h in headers)
+    lines = []
+    for i, row in enumerate(rows):
+        lines.append(f"*** row {i + 1} ***")
+        for header, val in zip(headers, row):
+            val = str(val) if val is not None else "NULL"
+            lines.append(f"  {header.rjust(max_header_len)}: {val}")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def format_table(headers, rows):
     if not rows:
         return "Query returned 0 rows."
@@ -41,6 +58,15 @@ def format_table(headers, rows):
     for row in str_rows:
         for i, val in enumerate(row):
             widths[i] = max(widths[i], len(val))
+
+    # If table would be wider than terminal, use vertical mode
+    total_width = sum(widths) + 3 * (len(widths) - 1)
+    try:
+        term_width = os.get_terminal_size().columns
+    except OSError:
+        term_width = 120
+    if total_width > term_width:
+        return format_vertical(headers, rows)
 
     lines = []
     lines.append(" | ".join(h.ljust(w) for h, w in zip(headers, widths)))
