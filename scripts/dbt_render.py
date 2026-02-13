@@ -3,7 +3,9 @@
 Handles ref, source, config, var, env_var, and project/package macros."""
 import json
 import os
+import re
 import sys
+from datetime import datetime
 from glob import glob
 
 import yaml
@@ -22,6 +24,9 @@ class SilentUndefined(Undefined):
         return False
 
     def __call__(self, *args, **kwargs):
+        return self
+
+    def __getattr__(self, name):
         return self
 
 
@@ -66,7 +71,6 @@ def build_source_map(manifest):
 def strip_dbt_block_tags(sql):
     """Remove dbt-specific block tags that Jinja2 doesn't understand:
     {% test %}, {% snapshot %}, {% materialization %}, etc."""
-    import re
     return re.sub(
         r"\{%-?\s*(?:test|snapshot|materialization)\b.*?{%-?\s*end(?:test|snapshot|materialization)\s*-?%}",
         "",
@@ -76,22 +80,54 @@ def strip_dbt_block_tags(sql):
 
 
 def collect_macro_sources(project_root):
-    """Read all .sql files from macros/ and dbt_packages/*/macros/ directories."""
+    """Read all .sql files from macros/ and dbt_packages/*/macros/ directories.
+    Project macros (macros/) are always included. dbt_packages macros are
+    individually validated with Jinja2 and skipped if they fail to parse."""
     sources = []
-    dirs = [
-        os.path.join(project_root, "macros"),
-        *glob(os.path.join(project_root, "dbt_packages", "*", "macros")),
-    ]
-    for d in dirs:
-        for path in glob(os.path.join(d, "**", "*.sql"), recursive=True):
+
+    # Always load ALL project macros — these are user-defined and must be included
+    project_macros_dir = os.path.join(project_root, "macros")
+    for path in glob(os.path.join(project_macros_dir, "**", "*.sql"), recursive=True):
+        with open(path) as f:
+            sources.append(strip_dbt_block_tags(f.read()))
+
+    # For dbt_packages, validate each file and skip unparseable ones
+    env = Environment(
+        loader=BaseLoader(),
+        undefined=SilentUndefined,
+        extensions=["jinja2.ext.do", "jinja2.ext.loopcontrols"],
+    )
+    env.globals.update({
+        "adapter": SilentUndefined(name="adapter"),
+        "exceptions": SilentUndefined(name="exceptions"),
+        "target": {"name": "prod", "schema": "prod"},
+        "this": "",
+        "config": lambda **kw: "",
+        "ref": lambda *a: "",
+        "source": lambda *a: "",
+        "var": lambda name, default=None: default or "",
+        "env_var": lambda name, default=None: os.environ.get(name, default or ""),
+        "is_incremental": lambda: False,
+        "log": lambda msg, info=False: "",
+        "return": lambda x: x,
+        "run_started_at": datetime.now(),
+    })
+    for pkg_macros_dir in glob(os.path.join(project_root, "dbt_packages", "*", "macros")):
+        for path in glob(os.path.join(pkg_macros_dir, "**", "*.sql"), recursive=True):
             with open(path) as f:
-                sources.append(f.read())
-    return strip_dbt_block_tags("\n".join(sources))
+                content = f.read()
+            cleaned = strip_dbt_block_tags(content)
+            try:
+                env.parse(cleaned)
+                sources.append(cleaned)
+            except Exception:
+                pass
+
+    return "\n".join(sources)
 
 
 def detect_incremental(model_sql):
     """Check if the model config sets materialized = 'incremental'."""
-    import re
     return bool(re.search(r"""materialized\s*=\s*['"]incremental['"]""", model_sql))
 
 
@@ -138,6 +174,7 @@ def render_model(model_sql, ref_map, source_map, macro_sources, project_root, pr
     env.globals["exceptions"] = SilentUndefined(name="exceptions")
     env.globals["log"] = lambda msg, info=False: ""
     env.globals["return"] = lambda x: x
+    env.globals["run_started_at"] = datetime.now()
 
     # Load macros first, then the model
     full_template = macro_sources + "\n" + model_sql
@@ -146,79 +183,195 @@ def render_model(model_sql, ref_map, source_map, macro_sources, project_root, pr
         template = env.from_string(full_template)
         rendered = template.render()
     except Exception as e:
-        # If Jinja rendering fails, fall back to simple regex
-        rendered = regex_fallback(model_sql, ref_map, source_map, is_incremental, _vars)
+        # If Jinja rendering fails, fall back to regex
+        rendered = regex_fallback(model_sql, ref_map, source_map, is_incremental, _vars, macro_sources)
         rendered += f"\n-- Jinja render warning: {e}\n"
 
     # Clean up blank lines
-    import re
     rendered = re.sub(r"\n{3,}", "\n\n", rendered).strip() + "\n"
     return rendered
 
 
-def regex_fallback(sql, ref_map, source_map, is_incremental=False, project_vars=None):
-    """Simple regex fallback if Jinja2 rendering fails."""
-    import re
+# ---------------------------------------------------------------------------
+# Regex fallback
+# ---------------------------------------------------------------------------
 
-    # Handle {% if is_incremental() %} ... {% else %} ... {% endif %} blocks
-    # and {% if not is_incremental() %} ... {% endif %} blocks
-    def resolve_incremental_blocks(text):
-        # {% if is_incremental() %} ... {% else %} ... {% endif %}
-        def replace_if_inc(m):
-            if_body = m.group(1)
-            else_body = m.group(2) or ""
-            return if_body if is_incremental else else_body
+def parse_macro_defs(macro_sources):
+    """Extract macro definitions from macro source text.
+    Returns dict of {name: (arg_names, body)}."""
+    macros = {}
+    for m in re.finditer(
+        r"\{%-?\s*macro\s+(\w+)\s*\(([^)]*)\)\s*-?%}(.*?)\{%-?\s*endmacro\s*-?%}",
+        macro_sources, flags=re.DOTALL,
+    ):
+        name = m.group(1)
+        args = [a.strip().split("=")[0].strip() for a in m.group(2).split(",") if a.strip()]
+        body = m.group(3)
+        macros[name] = (args, body)
+    return macros
 
-        text = re.sub(
-            r"\{%-?\s*if\s+is_incremental\s*\(\)\s*-?%}(.*?)(?:\{%-?\s*else\s*-?%}(.*?))?\{%-?\s*endif\s*-?%}",
-            replace_if_inc, text, flags=re.DOTALL,
-        )
 
-        # {% if not is_incremental() %} ... {% else %} ... {% endif %}
-        def replace_if_not_inc(m):
-            if_body = m.group(1)
-            else_body = m.group(2) or ""
-            return if_body if not is_incremental else else_body
+def _parse_call_args(call_args_str):
+    """Parse a macro call argument string, handling nested parens and quotes."""
+    call_args = []
+    current = ""
+    depth = 0
+    in_quote = None
+    for ch in call_args_str:
+        if ch in ("'", '"') and in_quote is None:
+            in_quote = ch
+        elif ch == in_quote:
+            in_quote = None
+        elif ch == "(" and in_quote is None:
+            depth += 1
+        elif ch == ")" and in_quote is None:
+            depth -= 1
+        elif ch == "," and depth == 0 and in_quote is None:
+            call_args.append(current.strip())
+            current = ""
+            continue
+        current += ch
+    if current.strip():
+        call_args.append(current.strip())
 
-        text = re.sub(
-            r"\{%-?\s*if\s+not\s+is_incremental\s*\(\)\s*-?%}(.*?)(?:\{%-?\s*else\s*-?%}(.*?))?\{%-?\s*endif\s*-?%}",
-            replace_if_not_inc, text, flags=re.DOTALL,
-        )
-        return text
+    # Strip surrounding quotes from arguments
+    cleaned = []
+    for arg in call_args:
+        arg = arg.strip()
+        if (arg.startswith("'") and arg.endswith("'")) or \
+           (arg.startswith('"') and arg.endswith('"')):
+            arg = arg[1:-1]
+        cleaned.append(arg)
+    return cleaned
 
-    sql = resolve_incremental_blocks(sql)
 
-    sql = re.sub(r"\{\{\s*config\s*\(.*?\)\s*\}\}", "", sql, flags=re.DOTALL)
+def expand_macros(sql, macro_defs, max_depth=10):
+    """Expand macro calls in SQL using parsed macro definitions.
+    Handles {{ macro_name('arg1', 'arg2') }} patterns."""
+    for _ in range(max_depth):
+        found = False
+        for name, (arg_names, body) in macro_defs.items():
+            pattern = r"\{\{-?\s*" + re.escape(name) + r"\s*\((.*?)\)\s*-?\}\}"
+            for match in re.finditer(pattern, sql):
+                found = True
+                cleaned_args = _parse_call_args(match.group(1))
 
-    def replace_ref(match):
-        return ref_map.get(match.group(1), f"/* UNRESOLVED ref('{match.group(1)}') */")
+                # Substitute arguments into the macro body
+                expanded = body
+                for i, arg_name in enumerate(arg_names):
+                    if i < len(cleaned_args):
+                        # Handle all spacing variants: {{x}}, {{ x }}, {{x }}, {{ x}}
+                        expanded = re.sub(
+                            r"\{\{-?\s*" + re.escape(arg_name) + r"\s*-?\}\}",
+                            cleaned_args[i],
+                            expanded,
+                        )
 
-    sql = re.sub(r"\{\{\s*ref\s*\(\s*['\"]([^'\"]+)['\"]\s*\)\s*\}\}", replace_ref, sql)
+                sql = sql[:match.start()] + expanded + sql[match.end():]
+                break  # restart after each substitution since positions shifted
+        if not found:
+            break
+    return sql
 
-    def replace_source(match):
-        key = (match.group(1), match.group(2))
-        return source_map.get(key, f"/* UNRESOLVED source('{match.group(1)}', '{match.group(2)}') */")
 
-    sql = re.sub(
-        r"\{\{\s*source\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)\s*\}\}",
-        replace_source, sql,
-    )
-
-    _vars = project_vars or {}
-
+def _replace_vars(sql, project_vars):
+    """Replace {{ var('name') }} and {{ var('name', default) }} expressions."""
     def replace_var(match):
         name = match.group(1)
-        default = match.group(3)  # group 3 is the default value if present
-        if name in _vars:
-            return str(_vars[name])
+        default = match.group(3)
+        if name in project_vars:
+            return str(project_vars[name])
         if default is not None:
             return default
         return "Not defined."
 
-    sql = re.sub(
-        r"\{\{\s*var\s*\(\s*['\"]([^'\"]+)['\"]\s*(,\s*['\"]?([^'\")\s]+)['\"]?\s*)?\)\s*\}\}",
+    return re.sub(
+        r"\{\{-?\s*var\s*\(\s*['\"]([^'\"]+)['\"]\s*(,\s*['\"]?([^'\")\s]+)['\"]?\s*)?\)\s*-?\}\}",
         replace_var, sql,
     )
+
+
+def regex_fallback(sql, ref_map, source_map, is_incremental=False, project_vars=None, macro_sources=""):
+    """Comprehensive regex fallback when Jinja2 rendering fails."""
+    _vars = project_vars or {}
+
+    # 1. Remove Jinja comments {# ... #}
+    sql = re.sub(r"\{#.*?#\}", "", sql, flags=re.DOTALL)
+
+    # 2. Handle {% if is_incremental() %} blocks
+    def _resolve_incremental(text):
+        # {% if is_incremental() %} ... {% else %} ... {% endif %}
+        text = re.sub(
+            r"\{%-?\s*if\s+is_incremental\s*\(\)\s*-?%}(.*?)(?:\{%-?\s*else\s*-?%}(.*?))?\{%-?\s*endif\s*-?%}",
+            lambda m: m.group(1) if is_incremental else (m.group(2) or ""),
+            text, flags=re.DOTALL,
+        )
+        # {% if not is_incremental() %} ... {% else %} ... {% endif %}
+        text = re.sub(
+            r"\{%-?\s*if\s+not\s+is_incremental\s*\(\)\s*-?%}(.*?)(?:\{%-?\s*else\s*-?%}(.*?))?\{%-?\s*endif\s*-?%}",
+            lambda m: m.group(1) if not is_incremental else (m.group(2) or ""),
+            text, flags=re.DOTALL,
+        )
+        return text
+
+    sql = _resolve_incremental(sql)
+
+    # 3. Handle {% if target.name == 'prod' %} and != 'prod' blocks
+    sql = re.sub(
+        r"\{%-?\s*if\s+target\.name\s*==\s*['\"]prod['\"]\s*-?%}(.*?)(?:\{%-?\s*else\s*-?%}(.*?))?\{%-?\s*endif\s*-?%}",
+        lambda m: m.group(1), sql, flags=re.DOTALL,
+    )
+    sql = re.sub(
+        r"\{%-?\s*if\s+target\.name\s*!=\s*['\"]prod['\"]\s*-?%}(.*?)(?:\{%-?\s*else\s*-?%}(.*?))?\{%-?\s*endif\s*-?%}",
+        lambda m: m.group(2) or "", sql, flags=re.DOTALL,
+    )
+
+    # 4. Remove {{ config(...) }}
+    sql = re.sub(r"\{\{-?\s*config\s*\(.*?\)\s*-?\}\}", "", sql, flags=re.DOTALL)
+
+    # 5. Expand custom macros FIRST (before var/ref/source, so macro bodies get resolved)
+    if macro_sources:
+        macro_defs = parse_macro_defs(macro_sources)
+        sql = expand_macros(sql, macro_defs)
+
+    # 6. Replace {{ ref('...') }}
+    sql = re.sub(
+        r"\{\{-?\s*ref\s*\(\s*['\"]([^'\"]+)['\"]\s*\)\s*-?\}\}",
+        lambda m: ref_map.get(m.group(1), f"/* UNRESOLVED ref('{m.group(1)}') */"),
+        sql,
+    )
+
+    # 7. Replace {{ source('...', '...') }}
+    sql = re.sub(
+        r"\{\{-?\s*source\s*\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]\s*\)\s*-?\}\}",
+        lambda m: source_map.get((m.group(1), m.group(2)),
+                                 f"/* UNRESOLVED source('{m.group(1)}', '{m.group(2)}') */"),
+        sql,
+    )
+
+    # 8. Replace {{ var('...') }} — runs AFTER macro expansion so vars inside macro bodies resolve
+    sql = _replace_vars(sql, _vars)
+
+    # 9. Remove {% set ... %} statements
+    sql = re.sub(r"\{%-?\s*set\s+.*?-?%}", "", sql, flags=re.DOTALL)
+
+    # 10. Remove any remaining {% ... %} blocks (if/else/endif, for, etc.)
+    # Handle remaining if/else/endif by keeping the first branch
+    for _ in range(5):  # iterate for nested blocks
+        prev = sql
+        sql = re.sub(
+            r"\{%-?\s*if\b.*?-?%}(.*?)(?:\{%-?\s*else\s*-?%}.*?)?\{%-?\s*endif\s*-?%}",
+            r"\1", sql, flags=re.DOTALL,
+        )
+        if sql == prev:
+            break
+
+    # Strip any remaining Jinja tags that weren't handled
+    sql = re.sub(r"\{%-?.*?-?%}", "", sql, flags=re.DOTALL)
+
+    # 11. Remove any remaining unresolved {{ ... }} expressions
+    sql = re.sub(r"\{\{-?.*?-?\}\}", "", sql)
+
     return sql
 
 

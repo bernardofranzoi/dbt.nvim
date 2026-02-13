@@ -2,8 +2,8 @@ local project = require("dbt.project")
 
 local M = {}
 
---- Detect ref('model') or source('schema', 'table') under the cursor.
---- Returns ("ref", model_name) or ("source", schema, table_name) or nil.
+--- Detect ref('model'), source('schema', 'table'), or {{ macro_name(...) }} under the cursor.
+--- Returns ("ref", model_name) or ("source", schema, table_name) or ("macro", macro_name) or nil.
 function M.ref_at_cursor()
   local line = vim.api.nvim_get_current_line()
   local col = vim.fn.col(".")
@@ -28,6 +28,23 @@ function M.ref_at_cursor()
       return "source", schema, tbl
     end
     pos = e + 1
+  end
+
+  -- Check {{ macro_name(...) }} patterns (any macro call that isn't ref/source/config/var/env_var)
+  pos = 1
+  while true do
+    local s, e, name = line:find("{{%-?%s*([%w_]+)%s*%(", pos)
+    if not s then break end
+    -- Find the closing }}
+    local close = line:find("}}", e)
+    if close and col >= s and col <= close + 1 then
+      -- Skip built-in functions
+      local builtins = { ref = true, source = true, config = true, var = true, env_var = true }
+      if not builtins[name] then
+        return "macro", name
+      end
+    end
+    pos = (close or e) + 1
   end
 
   return nil
@@ -66,6 +83,32 @@ local function setup_gd(buf)
         end
       end
       vim.notify("Source not found: " .. a .. "." .. b, vim.log.levels.WARN)
+    elseif kind == "macro" then
+      -- Search for macro definition in macros/ directory
+      -- Pattern matches both {% macro name and {%- macro name
+      local pat = "{%%%-?%s*macro%s+" .. a
+      local macro_files = vim.fn.glob(root .. "/macros/**/*.sql", false, true)
+      for _, mf in ipairs(macro_files) do
+        local lines = vim.fn.readfile(mf)
+        for i, l in ipairs(lines) do
+          if l:find(pat) then
+            vim.cmd("edit +" .. i .. " " .. vim.fn.fnameescape(mf))
+            return
+          end
+        end
+      end
+      -- Also check dbt_packages
+      macro_files = vim.fn.glob(root .. "/dbt_packages/*/macros/**/*.sql", false, true)
+      for _, mf in ipairs(macro_files) do
+        local lines = vim.fn.readfile(mf)
+        for i, l in ipairs(lines) do
+          if l:find(pat) then
+            vim.cmd("edit +" .. i .. " " .. vim.fn.fnameescape(mf))
+            return
+          end
+        end
+      end
+      vim.notify("Macro not found: " .. a, vim.log.levels.WARN)
     else
       vim.lsp.buf.definition()
     end
