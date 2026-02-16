@@ -76,8 +76,9 @@ function M.compile_and_run(opts)
   if opts and opts.csv then
     csv_flag = " --csv " .. vim.fn.shellescape(opts.csv)
   end
+  local limit_flag = M._query_limit and (" --limit " .. M._query_limit) or ""
   local cmd = string.format(
-    [[cd %s && %s%s compile -s %s %s && cp "$(find target/compiled -name '%s.sql' -print -quit)" %s && %s %s %s --profile %s%s]],
+    [[cd %s && %s%s compile -s %s %s && cp "$(find target/compiled -name '%s.sql' -print -quit)" %s && %s %s %s --profile %s%s%s]],
     vim.fn.shellescape(root),
     env,
     dbt,
@@ -89,6 +90,7 @@ function M.compile_and_run(opts)
     vim.fn.shellescape(query_script),
     vim.fn.shellescape(tmpfile),
     vim.fn.shellescape(profile),
+    limit_flag,
     csv_flag
   )
   terminal.float(cmd, " dbt compile + query: " .. m .. " ")

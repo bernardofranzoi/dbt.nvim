@@ -82,8 +82,10 @@ def strip_dbt_block_tags(sql):
 def collect_macro_sources(project_root):
     """Read all .sql files from macros/ and dbt_packages/*/macros/ directories.
     Project macros (macros/) are always included. dbt_packages macros are
-    individually validated with Jinja2 and skipped if they fail to parse."""
+    individually validated with Jinja2 and skipped if they fail to parse.
+    Returns (macro_sources_str, package_names_list)."""
     sources = []
+    package_names = []
 
     # Always load ALL project macros — these are user-defined and must be included
     project_macros_dir = os.path.join(project_root, "macros")
@@ -113,6 +115,9 @@ def collect_macro_sources(project_root):
         "run_started_at": datetime.now(),
     })
     for pkg_macros_dir in glob(os.path.join(project_root, "dbt_packages", "*", "macros")):
+        pkg_name = os.path.basename(os.path.dirname(pkg_macros_dir))
+        if pkg_name not in package_names:
+            package_names.append(pkg_name)
         for path in glob(os.path.join(pkg_macros_dir, "**", "*.sql"), recursive=True):
             with open(path) as f:
                 content = f.read()
@@ -123,7 +128,18 @@ def collect_macro_sources(project_root):
             except Exception:
                 pass
 
-    return "\n".join(sources)
+    return "\n".join(sources), package_names
+
+
+def strip_package_namespaces(sql, package_names):
+    """Strip dbt package namespace prefixes from macro calls.
+    In dbt, package macros are called as {{ dbt_utils.macro_name(...) }}
+    but defined as {% macro macro_name(...) %}. Standard Jinja2 can't
+    resolve the namespace, so we strip it since macros are loaded globally."""
+    for pkg in package_names:
+        # Handle {{ pkg.macro(...) }} and {%- call(x) pkg.macro(...) %} etc.
+        sql = re.sub(r"(?<=\W)" + re.escape(pkg) + r"\.", "", sql)
+    return sql
 
 
 def detect_incremental(model_sql):
@@ -131,7 +147,7 @@ def detect_incremental(model_sql):
     return bool(re.search(r"""materialized\s*=\s*['"]incremental['"]""", model_sql))
 
 
-def render_model(model_sql, ref_map, source_map, macro_sources, project_root, project_vars=None):
+def render_model(model_sql, ref_map, source_map, macro_sources, project_root, project_vars=None, package_names=None):
     env = Environment(
         loader=BaseLoader(),
         undefined=SilentUndefined,
@@ -140,6 +156,10 @@ def render_model(model_sql, ref_map, source_map, macro_sources, project_root, pr
 
     is_incremental = detect_incremental(model_sql)
     _vars = project_vars or {}
+
+    # Strip package namespace prefixes (e.g. dbt_utils.union_relations -> union_relations)
+    if package_names:
+        model_sql = strip_package_namespaces(model_sql, package_names)
 
     # -- dbt built-in functions --
     def dbt_ref(model_name):
@@ -184,7 +204,7 @@ def render_model(model_sql, ref_map, source_map, macro_sources, project_root, pr
         rendered = template.render()
     except Exception as e:
         # If Jinja rendering fails, fall back to regex
-        rendered = regex_fallback(model_sql, ref_map, source_map, is_incremental, _vars, macro_sources)
+        rendered = regex_fallback(model_sql, ref_map, source_map, is_incremental, _vars, macro_sources, package_names)
         rendered += f"\n-- Jinja render warning: {e}\n"
 
     # Clean up blank lines
@@ -291,9 +311,13 @@ def _replace_vars(sql, project_vars):
     )
 
 
-def regex_fallback(sql, ref_map, source_map, is_incremental=False, project_vars=None, macro_sources=""):
+def regex_fallback(sql, ref_map, source_map, is_incremental=False, project_vars=None, macro_sources="", package_names=None):
     """Comprehensive regex fallback when Jinja2 rendering fails."""
     _vars = project_vars or {}
+
+    # Strip package namespace prefixes
+    if package_names:
+        sql = strip_package_namespaces(sql, package_names)
 
     # 1. Remove Jinja comments {# ... #}
     sql = re.sub(r"\{#.*?#\}", "", sql, flags=re.DOTALL)
@@ -411,10 +435,10 @@ def main():
     manifest = load_manifest(state_dir)
     ref_map = build_ref_map(manifest)
     source_map = build_source_map(manifest)
-    macro_sources = collect_macro_sources(project_root) if project_root else ""
+    macro_sources, package_names = collect_macro_sources(project_root) if project_root else ("", [])
     project_vars = load_project_vars(project_root)
 
-    rendered = render_model(model_sql, ref_map, source_map, macro_sources, project_root, project_vars)
+    rendered = render_model(model_sql, ref_map, source_map, macro_sources, project_root, project_vars, package_names)
 
     if output_file:
         with open(output_file, "w") as f:
