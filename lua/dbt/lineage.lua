@@ -210,16 +210,17 @@ local function open_node_file(manifest, uid)
   if not uid then
     return
   end
+  local node
   if uid:find("^source%.") then
-    vim.notify("Sources don't have SQL files", vim.log.levels.INFO)
-    return
+    node = (manifest.sources or {})[uid]
+  else
+    node = (manifest.nodes or {})[uid]
   end
-  local node = (manifest.nodes or {})[uid]
   if not node then
     vim.notify("Node not found in manifest", vim.log.levels.WARN)
     return
   end
-  local file = node.original_file_path
+  local file = node.original_file_path or node.path
   if not file then
     vim.notify("No file path for this node", vim.log.levels.WARN)
     return
