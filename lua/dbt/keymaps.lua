@@ -118,6 +118,7 @@ function M.setup(opts)
       if vim.bo.modified then
         vim.cmd("write")
       end
+      local bufnr = vim.api.nvim_get_current_buf()
       local file = vim.fn.expand("%:p")
       local root = project.find_root()
       if not root then
@@ -127,16 +128,13 @@ function M.setup(opts)
       local sqlfluff = project.get_sqlfluff(root)
       local env = project.env_prefix(root)
       local cmd = string.format("cd %s && %s%s fix %s", vim.fn.shellescape(root), env, sqlfluff, vim.fn.shellescape(file))
-      vim.fn.jobstart(cmd, {
-        on_exit = function(_, exit_code)
-          vim.schedule(function()
-            if exit_code <= 1 then
-              vim.cmd("edit")
-              vim.notify("sqlfluff fix done", vim.log.levels.INFO)
-            else
-              vim.notify("sqlfluff fix failed (exit " .. exit_code .. ")", vim.log.levels.ERROR)
-            end
-          end)
+      terminal.float(cmd, " sqlfluff fix ")
+      -- Reload buffer when user returns to it
+      vim.api.nvim_create_autocmd("BufEnter", {
+        buffer = bufnr,
+        once = true,
+        callback = function()
+          vim.cmd("edit")
         end,
       })
     end, { desc = "Format with sqlfluff fix" })
