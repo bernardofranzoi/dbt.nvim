@@ -11,6 +11,7 @@ M.defaults = {
     query_csv = "<leader>dQ",
     render = "<leader>do",
     defer = "<leader>dd",
+    format = "<leader>df",
   },
   which_key_group = "<leader>d",
   show_limit = 100,

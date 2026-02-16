@@ -57,6 +57,15 @@ function M.get_python(root)
   return "python3"
 end
 
+--- Return the sqlfluff binary. Uses .venv or global.
+function M.get_sqlfluff(root)
+  local venv_sf = root .. "/.venv/bin/sqlfluff"
+  if vim.fn.executable(venv_sf) == 1 then
+    return venv_sf
+  end
+  return "sqlfluff"
+end
+
 --- Current file's stem (model name).
 function M.model_name()
   return vim.fn.expand("%:t:r")

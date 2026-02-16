@@ -113,6 +113,35 @@ function M.setup(opts)
     end, { desc = "Open rendered SQL (fast)" })
   end
 
+  if keys.format then
+    vim.keymap.set("n", keys.format, function()
+      if vim.bo.modified then
+        vim.cmd("write")
+      end
+      local file = vim.fn.expand("%:p")
+      local root = project.find_root()
+      if not root then
+        vim.notify("No dbt_project.yml found", vim.log.levels.ERROR)
+        return
+      end
+      local sqlfluff = project.get_sqlfluff(root)
+      local env = project.env_prefix(root)
+      local cmd = string.format("cd %s && %s%s fix %s", vim.fn.shellescape(root), env, sqlfluff, vim.fn.shellescape(file))
+      vim.fn.jobstart(cmd, {
+        on_exit = function(_, exit_code)
+          vim.schedule(function()
+            if exit_code <= 1 then
+              vim.cmd("edit")
+              vim.notify("sqlfluff fix done", vim.log.levels.INFO)
+            else
+              vim.notify("sqlfluff fix failed (exit " .. exit_code .. ")", vim.log.levels.ERROR)
+            end
+          end)
+        end,
+      })
+    end, { desc = "Format with sqlfluff fix" })
+  end
+
   if keys.defer then
     vim.keymap.set("n", keys.defer, function()
       project._defer_enabled = not project._defer_enabled
