@@ -12,6 +12,7 @@ M.defaults = {
     render = "<leader>do",
     defer = "<leader>dd",
     format = "<leader>df",
+    lineage = "<leader>dl",
   },
   which_key_group = "<leader>d",
   show_limit = 100,

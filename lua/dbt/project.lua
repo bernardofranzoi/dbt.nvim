@@ -96,6 +96,22 @@ function M.find_prod_state_dir(root)
   return nil
 end
 
+--- Find manifest.json: prefer target/ (latest compile), fall back to prod state dir.
+function M.find_manifest(root)
+  local target = root .. "/target/manifest.json"
+  if vim.fn.filereadable(target) == 1 then
+    return target
+  end
+  local state_dir = M.find_prod_state_dir(root)
+  if state_dir then
+    local prod = state_dir .. "/manifest.json"
+    if vim.fn.filereadable(prod) == 1 then
+      return prod
+    end
+  end
+  return nil
+end
+
 --- Return --defer --state flags if defer is enabled and a prod manifest exists.
 function M.defer_flags(root)
   if not M._defer_enabled then

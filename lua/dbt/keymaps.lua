@@ -140,6 +140,12 @@ function M.setup(opts)
     end, { desc = "Format with sqlfluff fix" })
   end
 
+  if keys.lineage then
+    vim.keymap.set("n", keys.lineage, function()
+      require("dbt.lineage").show()
+    end, { desc = "dbt lineage" })
+  end
+
   if keys.defer then
     vim.keymap.set("n", keys.defer, function()
       project._defer_enabled = not project._defer_enabled
