@@ -147,7 +147,7 @@ def detect_incremental(model_sql):
     return bool(re.search(r"""materialized\s*=\s*['"]incremental['"]""", model_sql))
 
 
-def render_model(model_sql, ref_map, source_map, macro_sources, project_root, project_vars=None, package_names=None):
+def render_model(model_sql, ref_map, source_map, macro_sources, project_root, project_vars=None, package_names=None, this_relation=""):
     env = Environment(
         loader=BaseLoader(),
         undefined=SilentUndefined,
@@ -189,7 +189,7 @@ def render_model(model_sql, ref_map, source_map, macro_sources, project_root, pr
     env.globals["env_var"] = dbt_env_var
     env.globals["is_incremental"] = lambda: is_incremental
     env.globals["target"] = {"name": "prod", "schema": "prod"}
-    env.globals["this"] = ""
+    env.globals["this"] = this_relation
     env.globals["adapter"] = SilentUndefined(name="adapter")
     env.globals["exceptions"] = SilentUndefined(name="exceptions")
     env.globals["log"] = lambda msg, info=False: ""
@@ -204,7 +204,7 @@ def render_model(model_sql, ref_map, source_map, macro_sources, project_root, pr
         rendered = template.render()
     except Exception as e:
         # If Jinja rendering fails, fall back to regex
-        rendered = regex_fallback(model_sql, ref_map, source_map, is_incremental, _vars, macro_sources, package_names)
+        rendered = regex_fallback(model_sql, ref_map, source_map, is_incremental, _vars, macro_sources, package_names, this_relation)
         rendered += f"\n-- Jinja render warning: {e}\n"
 
     # Clean up blank lines
@@ -311,7 +311,7 @@ def _replace_vars(sql, project_vars):
     )
 
 
-def regex_fallback(sql, ref_map, source_map, is_incremental=False, project_vars=None, macro_sources="", package_names=None):
+def regex_fallback(sql, ref_map, source_map, is_incremental=False, project_vars=None, macro_sources="", package_names=None, this_relation=""):
     """Comprehensive regex fallback when Jinja2 rendering fails."""
     _vars = project_vars or {}
 
@@ -364,6 +364,10 @@ def regex_fallback(sql, ref_map, source_map, is_incremental=False, project_vars=
         lambda m: ref_map.get(m.group(1), f"/* UNRESOLVED ref('{m.group(1)}') */"),
         sql,
     )
+
+    # 6b. Replace {{ this }}
+    if this_relation:
+        sql = re.sub(r"\{\{-?\s*this\s*-?\}\}", this_relation, sql)
 
     # 7. Replace {{ source('...', '...') }}
     sql = re.sub(
@@ -438,7 +442,11 @@ def main():
     macro_sources, package_names = collect_macro_sources(project_root) if project_root else ("", [])
     project_vars = load_project_vars(project_root)
 
-    rendered = render_model(model_sql, ref_map, source_map, macro_sources, project_root, project_vars, package_names)
+    # Resolve {{ this }} — the current model's relation_name
+    model_name = os.path.splitext(os.path.basename(model_file))[0]
+    this_relation = ref_map.get(model_name, "")
+
+    rendered = render_model(model_sql, ref_map, source_map, macro_sources, project_root, project_vars, package_names, this_relation)
 
     if output_file:
         with open(output_file, "w") as f:
