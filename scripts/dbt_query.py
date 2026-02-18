@@ -87,6 +87,14 @@ def write_csv(headers, rows, csv_path):
     print(f"\nCSV saved to: {csv_path}")
 
 
+def is_select_query(sql):
+    """Check if SQL is a SELECT statement (not DML like UPDATE, DELETE, MERGE, INSERT)."""
+    import re
+    stripped = re.sub(r'(/\*.*?\*/|--[^\n]*)', '', sql, flags=re.DOTALL).strip()
+    first_word = stripped.split()[0].upper() if stripped.split() else ""
+    return first_word in ("SELECT", "WITH")
+
+
 def run_bigquery(target, sql, limit):
     from google.cloud import bigquery
 
@@ -95,7 +103,7 @@ def run_bigquery(target, sql, limit):
         project=target["project"],
     )
 
-    if limit:
+    if limit and is_select_query(sql):
         sql = f"SELECT * FROM ({sql}) __q LIMIT {limit}"
 
     print(f"Adapter:  bigquery")
@@ -128,7 +136,7 @@ def run_bigquery(target, sql, limit):
 def run_databricks(target, sql, limit):
     from databricks import sql as dbsql
 
-    if limit:
+    if limit and is_select_query(sql):
         sql = f"SELECT * FROM ({sql}) __q LIMIT {limit}"
 
     print(f"Adapter:  databricks")
