@@ -207,6 +207,8 @@ def render_model(model_sql, ref_map, source_map, macro_sources, project_root, pr
         rendered = regex_fallback(model_sql, ref_map, source_map, is_incremental, _vars, macro_sources, package_names, this_relation)
         rendered += f"\n-- Jinja render warning: {e}\n"
 
+    # Clean up orphaned Jinja block-tag closing delimiters (e.g. stray -%} or %})
+    rendered = re.sub(r"-?%}", "", rendered)
     # Clean up blank lines
     rendered = re.sub(r"\n{3,}", "\n\n", rendered).strip() + "\n"
     return rendered
