@@ -87,6 +87,27 @@ def write_csv(headers, rows, csv_path):
     print(f"\nCSV saved to: {csv_path}")
 
 
+def format_sql_with_marker(sql, error_msg):
+    """Return SQL with line numbers and a marker at the error position if found in error_msg."""
+    import re
+    match = re.search(r'\[(\d+):(\d+)\]', error_msg)
+    error_line = int(match.group(1)) if match else None
+    error_col = int(match.group(2)) if match else None
+
+    lines = sql.splitlines()
+    num_width = len(str(len(lines)))
+    result = []
+    for i, line in enumerate(lines, start=1):
+        if i == error_line:
+            result.append(f">>> {i:{num_width}} | {line}")
+            if error_col:
+                pad = len(f">>> {i:{num_width}} | ") + error_col - 1
+                result.append(" " * pad + "^")
+        else:
+            result.append(f"    {i:{num_width}} | {line}")
+    return "\n".join(result)
+
+
 def is_select_query(sql):
     """Check if SQL is a SELECT statement (not DML like UPDATE, DELETE, MERGE, INSERT)."""
     import re
@@ -221,7 +242,7 @@ def main():
 
     except Exception as e:
         print(f"\nQuery error:\n{e}")
-        print(f"\nCompiled SQL:\n{'-' * 60}\n{sql}\n{'-' * 60}")
+        print(f"\nCompiled SQL:\n{'-' * 60}\n{format_sql_with_marker(sql, str(e))}\n{'-' * 60}")
         sys.exit(1)
 
 
