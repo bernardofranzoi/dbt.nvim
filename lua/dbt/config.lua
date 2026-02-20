@@ -13,6 +13,7 @@ M.defaults = {
     defer = "<leader>dd",
     format = "<leader>df",
     lineage = "<leader>dl",
+    terminal = "<leader>ft",
   },
   which_key_group = "<leader>d",
   show_limit = 100,

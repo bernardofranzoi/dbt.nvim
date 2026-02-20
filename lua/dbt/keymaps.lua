@@ -146,6 +146,12 @@ function M.setup(opts)
     end, { desc = "dbt lineage" })
   end
 
+  if keys.terminal then
+    vim.keymap.set("n", keys.terminal, function()
+      terminal.open_terminal()
+    end, { desc = "Open dbt terminal (venv activated)" })
+  end
+
   if keys.defer then
     vim.keymap.set("n", keys.defer, function()
       project._defer_enabled = not project._defer_enabled
