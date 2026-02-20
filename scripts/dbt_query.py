@@ -221,6 +221,7 @@ def main():
 
     except Exception as e:
         print(f"\nQuery error:\n{e}")
+        print(f"\nCompiled SQL:\n{'-' * 60}\n{sql}\n{'-' * 60}")
         sys.exit(1)
 
 
