@@ -138,6 +138,36 @@ function M.setup(opts)
         end,
       })
     end, { desc = "Format with sqlfluff fix" })
+
+    -- Visual mode: format selection only
+    vim.keymap.set("x", keys.format, function()
+      local start_line = vim.fn.line("v")
+      local end_line = vim.fn.line(".")
+      if start_line > end_line then
+        start_line, end_line = end_line, start_line
+      end
+      vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+
+      local root = project.find_root()
+      if not root then
+        vim.notify("No dbt_project.yml found", vim.log.levels.ERROR)
+        return
+      end
+
+      local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
+      local tmp = vim.fn.tempname() .. ".sql"
+      vim.fn.writefile(lines, tmp)
+
+      local sqlfluff = project.get_sqlfluff(root)
+      local env = project.env_prefix(root)
+      local cmd = string.format("cd %s && %s%s fix %s", vim.fn.shellescape(root), env, sqlfluff, vim.fn.shellescape(tmp))
+      vim.fn.system(cmd)
+
+      local formatted = vim.fn.readfile(tmp)
+      vim.fn.delete(tmp)
+      vim.api.nvim_buf_set_lines(0, start_line - 1, end_line, false, formatted)
+      vim.notify("sqlfluff: selection formatted", vim.log.levels.INFO)
+    end, { desc = "Format selection with sqlfluff fix" })
   end
 
   if keys.lineage then
