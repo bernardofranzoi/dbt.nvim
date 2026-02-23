@@ -194,7 +194,7 @@ function M.setup(opts)
   if opts.which_key_group then
     local ok, wk = pcall(require, "which-key")
     if ok then
-      wk.add({ { opts.which_key_group, group = "dbt" } })
+      wk.add({ { opts.which_key_group, group = "dbt", mode = { "n", "x" } } })
     end
   end
 end
