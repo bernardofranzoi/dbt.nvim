@@ -57,19 +57,11 @@ function M.setup(opts)
 
     -- Visual mode: run selection
     vim.keymap.set("x", keys.query, function()
-      local start_line = vim.fn.line("v")
-      local end_line = vim.fn.line(".")
-      if start_line > end_line then
-        start_line, end_line = end_line, start_line
-      end
-      local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
-      local content = table.concat(lines, "\n")
-      if project.has_jinja(content) and project.is_dbt_model() and not project.is_compiled_artifact() then
-        query.compile_and_run()
-      else
-        query.run_sql(lines)
-      end
+      local start_line = vim.fn.line("'<")
+      local end_line = vim.fn.line("'>")
+      local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
+      query.run_sql(lines)
     end, { desc = "Run selection SQL on warehouse" })
   end
 
@@ -89,21 +81,13 @@ function M.setup(opts)
 
     -- Visual mode: run selection and save to CSV
     vim.keymap.set("x", keys.query_csv, function()
-      local start_line = vim.fn.line("v")
-      local end_line = vim.fn.line(".")
-      if start_line > end_line then
-        start_line, end_line = end_line, start_line
-      end
-      local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+      local start_line = vim.fn.line("'<")
+      local end_line = vim.fn.line("'>")
+      local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
       local csv_path = vim.fn.input("Save CSV to: ", vim.fn.getcwd() .. "/query_results.csv")
       if csv_path == "" then return end
-      local content = table.concat(lines, "\n")
-      if project.has_jinja(content) and project.is_dbt_model() and not project.is_compiled_artifact() then
-        query.compile_and_run({ csv = csv_path })
-      else
-        query.run_sql(lines, { csv = csv_path })
-      end
+      query.run_sql(lines, { csv = csv_path })
     end, { desc = "Run selection SQL and save to CSV" })
   end
 
@@ -141,12 +125,9 @@ function M.setup(opts)
 
     -- Visual mode: format selection only
     vim.keymap.set("x", keys.format, function()
-      local start_line = vim.fn.line("v")
-      local end_line = vim.fn.line(".")
-      if start_line > end_line then
-        start_line, end_line = end_line, start_line
-      end
       vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "nx", false)
+      local start_line = vim.fn.line("'<")
+      local end_line = vim.fn.line("'>")
 
       local root = project.find_root()
       if not root then
