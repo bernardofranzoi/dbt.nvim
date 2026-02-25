@@ -161,7 +161,10 @@ function M.setup(opts)
       local dir = root .. "/analysis"
       vim.fn.mkdir(dir, "p")
       local timestamp = os.date("%Y%m%d_%H%M%S")
-      local path = dir .. "/" .. timestamp .. ".sql"
+      local name = vim.fn.input("File name (leave empty for timestamp): ")
+      local filename = (name ~= "" and name or timestamp)
+      if not filename:match("%.sql$") then filename = filename .. ".sql" end
+      local path = dir .. "/" .. filename
       vim.cmd("edit " .. vim.fn.fnameescape(path))
     end, { desc = "New dbt analysis SQL file" })
   end
