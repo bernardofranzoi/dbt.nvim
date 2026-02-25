@@ -14,6 +14,7 @@ M.defaults = {
     format = "<leader>df",
     lineage = "<leader>dl",
     terminal = "<leader>fT",
+    new_file = "<leader>dn",
   },
   which_key_group = "<leader>d",
   show_limit = 100,

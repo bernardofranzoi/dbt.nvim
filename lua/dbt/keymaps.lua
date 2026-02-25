@@ -151,6 +151,21 @@ function M.setup(opts)
     end, { desc = "Format selection with sqlfluff fix" })
   end
 
+  if keys.new_file then
+    vim.keymap.set("n", keys.new_file, function()
+      local root = project.find_root()
+      if not root then
+        vim.notify("No dbt_project.yml found in parent directories", vim.log.levels.ERROR)
+        return
+      end
+      local dir = root .. "/analysis"
+      vim.fn.mkdir(dir, "p")
+      local timestamp = os.date("%Y%m%d_%H%M%S")
+      local path = dir .. "/" .. timestamp .. ".sql"
+      vim.cmd("edit " .. vim.fn.fnameescape(path))
+    end, { desc = "New dbt analysis SQL file" })
+  end
+
   if keys.lineage then
     vim.keymap.set("n", keys.lineage, function()
       require("dbt.lineage").show()
