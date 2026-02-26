@@ -6,7 +6,7 @@ local M = {}
 M._opts = nil
 
 --- Open a Snacks floating terminal that runs `cmd` and stays open for viewing.
-function M.float(cmd, title, opts)
+local function float_impl(cmd, title, opts)
   local win_opts = M._opts and M._opts.float_win or { height = 0.8, width = 0.9, border = "rounded" }
   opts = opts or {}
   Snacks.terminal.open(cmd, {
@@ -17,6 +17,34 @@ function M.float(cmd, title, opts)
       title_pos = "center",
     }, win_opts),
   })
+end
+
+--- Open output in a horizontal split below the current window.
+local function split_impl(cmd, title)
+  local height = M._opts and M._opts.split_height or 0.35
+  local lines = math.max(5, math.floor(vim.o.lines * height))
+  vim.cmd("botright " .. lines .. "split")
+  local buf = vim.api.nvim_get_current_buf()
+  vim.bo[buf].bufhidden = "wipe"
+  vim.bo[buf].buflisted = false
+  if title and title ~= "" then
+    pcall(vim.api.nvim_buf_set_name, buf, title:gsub("%s+", ""))
+  end
+  vim.fn.termopen(cmd, {
+    on_exit = function()
+      vim.cmd("normal! G")
+    end,
+  })
+  vim.cmd("normal! G")
+end
+
+--- Open a terminal running `cmd`. Dispatches to float or split based on config.
+function M.float(cmd, title, opts)
+  if M._opts and M._opts.output == "split" then
+    split_impl(cmd, title)
+  else
+    float_impl(cmd, title, opts)
+  end
 end
 
 --- Run a dbt subcommand in a floating terminal.

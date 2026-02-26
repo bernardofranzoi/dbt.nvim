@@ -111,7 +111,13 @@ require("dbt").setup({
   -- Enable defer-to-prod by default.
   defer_to_prod = true,
 
-  -- Floating window appearance.
+  -- How to display command output: "float" (default) or "split" (horizontal split below).
+  output = "float",
+
+  -- Height of the split as a proportion of the screen. Only used when output = "split".
+  split_height = 0.35,
+
+  -- Floating window appearance. Only used when output = "float".
   float_win = {
     height = 0.8,
     width = 0.9,
