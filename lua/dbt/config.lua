@@ -11,6 +11,7 @@ M.defaults = {
     query_csv = "<leader>dQ",
     render = "<leader>do",
     defer = "<leader>dd",
+    toggle_output = "<leader>dO",
     format = "<leader>df",
     lineage = "<leader>dl",
     terminal = "<leader>fT",

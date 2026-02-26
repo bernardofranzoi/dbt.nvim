@@ -6,7 +6,9 @@ function M.setup(opts)
   project._defer_enabled = opts.defer_to_prod
   project._dbt_bin = opts.dbt_bin
   project._python_bin = opts.python_bin
-  require("dbt.terminal")._opts = opts
+  local terminal = require("dbt.terminal")
+  terminal._opts = opts
+  terminal._output = opts.output or "float"
   require("dbt.query")._query_limit = opts.query_limit
   require("dbt.keymaps").setup(opts)
   require("dbt.navigation").attach()

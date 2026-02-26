@@ -189,6 +189,13 @@ function M.setup(opts)
     end, { desc = "Toggle defer to prod" })
   end
 
+  if keys.toggle_output then
+    vim.keymap.set("n", keys.toggle_output, function()
+      terminal._output = terminal._output == "float" and "split" or "float"
+      vim.notify("dbt output: " .. terminal._output, vim.log.levels.INFO)
+    end, { desc = "Toggle dbt output (float/split)" })
+  end
+
   -- Register which-key group if available
   if opts.which_key_group then
     local ok, wk = pcall(require, "which-key")

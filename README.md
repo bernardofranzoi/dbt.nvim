@@ -137,7 +137,8 @@ require("dbt").setup({
     query    = "<leader>dq",  -- also works in visual mode
     query_csv = "<leader>dQ", -- also works in visual mode
     render   = "<leader>do",
-    defer    = "<leader>dd",
+    defer         = "<leader>dd",
+    toggle_output = "<leader>dO",
     format   = "<leader>df",  -- also works in visual mode
     lineage  = "<leader>dl",
     terminal = "<leader>fT",
@@ -174,6 +175,7 @@ opts = {
 | `<leader>dQ` | Run SQL on warehouse, save to CSV | n, x |
 | `<leader>do` | Open rendered SQL in vsplit | n |
 | `<leader>dd` | Toggle defer to prod | n |
+| `<leader>dO` | Toggle output mode (float/split) | n |
 | `<leader>df` | Format with sqlfluff | n, x |
 | `<leader>dl` | Show dbt lineage | n |
 | `<leader>fT` | Open interactive terminal (.venv) | n |

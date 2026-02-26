@@ -4,6 +4,7 @@ local M = {}
 
 -- Resolved options, set by init.lua
 M._opts = nil
+M._output = "float" -- runtime toggle: "float" | "split"
 
 --- Open a Snacks floating terminal that runs `cmd` and stays open for viewing.
 local function float_impl(cmd, title, opts)
@@ -38,9 +39,9 @@ local function split_impl(cmd, title)
   vim.cmd("normal! G")
 end
 
---- Open a terminal running `cmd`. Dispatches to float or split based on config.
+--- Open a terminal running `cmd`. Dispatches to float or split based on current mode.
 function M.float(cmd, title, opts)
-  if M._opts and M._opts.output == "split" then
+  if M._output == "split" then
     split_impl(cmd, title)
   else
     float_impl(cmd, title, opts)
