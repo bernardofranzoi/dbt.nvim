@@ -68,6 +68,44 @@ local function node_name(uid)
   return uid:match("[^.]+$") or uid
 end
 
+--- Collect all reachable UIDs via BFS through map_data (excluding test nodes).
+local function collect_reachable(start_uid, map_data)
+  local visited = { [start_uid] = true }
+  local queue = { start_uid }
+  local result = {}
+  while #queue > 0 do
+    local uid = table.remove(queue, 1)
+    for _, dep in ipairs(map_data[uid] or {}) do
+      if not dep:find("^test%.") and not visited[dep] then
+        visited[dep] = true
+        result[#result + 1] = dep
+        queue[#queue + 1] = dep
+      end
+    end
+  end
+  return result
+end
+
+--- Check if a column name exists in a manifest node (case-insensitive).
+local function node_has_column(manifest, uid, col_name)
+  local node
+  if uid:find("^source%.") then
+    node = (manifest.sources or {})[uid]
+  else
+    node = (manifest.nodes or {})[uid]
+  end
+  if not node or not node.columns then
+    return false
+  end
+  local lower = col_name:lower()
+  for k in pairs(node.columns) do
+    if k:lower() == lower then
+      return true
+    end
+  end
+  return false
+end
+
 --- Recursively collect tree nodes.
 --- map_data: parent_map or child_map from manifest
 --- Returns a tree: { uid = string, children = tree[] }
@@ -272,6 +310,127 @@ function M.show()
     title_pos = "center",
     width = 0.6,
     height = 0.6,
+    enter = true,
+    text = lines,
+    bo = { modifiable = false, filetype = "dbt_lineage" },
+    wo = { cursorline = true },
+    on_buf = function(self)
+      apply_highlights(self.buf, lines, meta)
+    end,
+    on_win = function(self)
+      if current_line then
+        vim.api.nvim_win_set_cursor(self.win, { current_line, 0 })
+      end
+    end,
+    keys = {
+      q = "close",
+      ["<CR>"] = {
+        function(self)
+          local row = vim.api.nvim_win_get_cursor(self.win)[1]
+          local m = meta[row]
+          if m and m.uid then
+            self:close()
+            open_node_file(manifest, m.uid)
+          end
+        end,
+        desc = "Open model file",
+      },
+    },
+  })
+end
+
+function M.show_column()
+  local col_name = vim.fn.expand("<cword>")
+  if col_name == "" then
+    vim.notify("No word under cursor", vim.log.levels.WARN)
+    return
+  end
+
+  local root = project.find_root()
+  if not root then
+    vim.notify("No dbt_project.yml found", vim.log.levels.ERROR)
+    return
+  end
+
+  local manifest_path = project.find_manifest(root)
+  if not manifest_path then
+    vim.notify("No manifest.json found (run dbt compile first)", vim.log.levels.ERROR)
+    return
+  end
+
+  local manifest = load_manifest(manifest_path)
+  if not manifest then
+    vim.notify("Failed to parse manifest.json", vim.log.levels.ERROR)
+    return
+  end
+
+  local model_name = project.model_name()
+  local current_uid = resolve_current_node(manifest, model_name)
+  if not current_uid then
+    vim.notify("Model '" .. model_name .. "' not found in manifest", vim.log.levels.WARN)
+    return
+  end
+
+  local parent_map = manifest.parent_map or {}
+  local child_map = manifest.child_map or {}
+
+  local upstream_uids = collect_reachable(current_uid, parent_map)
+  local downstream_uids = collect_reachable(current_uid, child_map)
+
+  local upstream_matches = vim.tbl_filter(function(uid)
+    return node_has_column(manifest, uid, col_name)
+  end, upstream_uids)
+  local downstream_matches = vim.tbl_filter(function(uid)
+    return node_has_column(manifest, uid, col_name)
+  end, downstream_uids)
+
+  table.sort(upstream_matches)
+  table.sort(downstream_matches)
+
+  local current_has = node_has_column(manifest, current_uid, col_name)
+
+  if #upstream_matches == 0 and #downstream_matches == 0 and not current_has then
+    vim.notify("Column '" .. col_name .. "' not found in any reachable model's schema", vim.log.levels.WARN)
+    return
+  end
+
+  local lines = {}
+  local meta = {}
+  local current_line = nil
+
+  local function add(text, uid, tag)
+    lines[#lines + 1] = text
+    meta[#meta + 1] = { uid = uid, tag = tag }
+  end
+
+  if #upstream_matches > 0 then
+    add(string.format(" UPSTREAM (%d/%d models)", #upstream_matches, #upstream_uids), nil, "header")
+    for _, uid in ipairs(upstream_matches) do
+      local tag = node_tag(uid)
+      add("   [" .. tag .. "] " .. node_name(uid), uid, tag)
+    end
+    add("", nil, nil)
+  end
+
+  add(" ► " .. model_name .. (current_has and "" or "  (not in schema)"), current_uid, "current")
+  current_line = #lines
+
+  if #downstream_matches > 0 then
+    add("", nil, nil)
+    add(string.format(" DOWNSTREAM (%d/%d models)", #downstream_matches, #downstream_uids), nil, "header")
+    for _, uid in ipairs(downstream_matches) do
+      local tag = node_tag(uid)
+      add("   [" .. tag .. "] " .. node_name(uid), uid, tag)
+    end
+  end
+
+  Snacks.win({
+    position = "float",
+    border = "rounded",
+    title = " column: " .. col_name .. " — " .. model_name .. " ",
+    title_pos = "center",
+    width = 0.5,
+    height = 0.5,
     enter = true,
     text = lines,
     bo = { modifiable = false, filetype = "dbt_lineage" },

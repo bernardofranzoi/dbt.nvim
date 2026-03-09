@@ -175,6 +175,12 @@ function M.setup(opts)
     end, { desc = "dbt lineage" })
   end
 
+  if keys.column_lineage then
+    vim.keymap.set("n", keys.column_lineage, function()
+      require("dbt.lineage").show_column()
+    end, { desc = "dbt column lineage" })
+  end
+
   if keys.terminal then
     vim.keymap.set("n", keys.terminal, function()
       terminal.open_terminal()

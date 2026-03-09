@@ -14,6 +14,7 @@ M.defaults = {
     toggle_output = "<leader>dO",
     format = "<leader>df",
     lineage = "<leader>dl",
+    column_lineage = "<leader>dL",
     terminal = "<leader>fT",
     new_file = "<leader>dn",
   },
