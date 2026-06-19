@@ -21,7 +21,7 @@ M.defaults = {
   which_key_group = "<leader>d",
   show_limit = 100,
   query_limit = 1000, -- default row limit for queries (nil to disable)
-  defer_to_prod = true,
+  defer_to_prod = false, -- toggle at runtime with the `defer` keymap (<leader>dd)
   output = "float", -- "float" | "split"
   split_height = 0.35, -- proportion of screen height used by the split
   float_win = { height = 0.8, width = 0.9, border = "rounded" },

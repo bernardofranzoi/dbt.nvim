@@ -108,8 +108,8 @@ require("dbt").setup({
   -- Row limit for warehouse queries. Set to nil to disable.
   query_limit = 1000,
 
-  -- Enable defer-to-prod by default.
-  defer_to_prod = true,
+  -- Enable defer-to-prod by default. Can be toggled at runtime with <leader>dd.
+  defer_to_prod = false,
 
   -- How to display command output: "float" (default) or "split" (horizontal split below).
   output = "float",
@@ -159,6 +159,17 @@ opts = {
   },
 }
 ```
+
+### Runtime toggles
+
+Two settings can be flipped on the fly without editing your config — handy for switching modes mid-session:
+
+| Toggle | Keymap | What it does |
+|--------|--------|--------------|
+| **Defer to prod** | `<leader>dd` | Turns `defer_to_prod` on/off. When on, dbt commands get `--defer --favor-state --state <dir>` so you run only changed models against production state. Off by default — turn it on once you have prod state artifacts available. |
+| **Output mode** | `<leader>dO` | Switches command output between `float` (floating window) and `split` (horizontal split below). Starts from the `output` config value. |
+
+Both toggles affect the current Neovim session only; set `defer_to_prod` / `output` in `opts` to change the startup default.
 
 ---
 
